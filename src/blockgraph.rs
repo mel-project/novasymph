@@ -136,24 +136,28 @@ impl<C: ContentAddrStore> BlockGraph<C> {
     fn get_state(&self, hash: HashVal) -> Option<SealedState<C>> {
         if hash == self.root.header().hash() {
             Some(self.root.clone())
+        } else if let Some(v) = self
+            .state_cache
+            .try_lock()
+            .and_then(|mut c| c.get(&hash).cloned())
+        {
+            Some(v)
         } else {
-            let mut cache = self.state_cache.lock();
-            if let Some(v) = cache.get(&hash).cloned() {
-                Some(v)
-            } else {
-                let prop = self.proposals.get(&hash).cloned()?;
-                let mut previous = self
-                    .get_state(prop.extends_from)
-                    .expect("dangling pointer within block graph");
-                while previous.inner_ref().height + BlockHeight(1) < prop.block.header.height {
-                    previous = previous.next_state().seal(None);
-                }
-                let res = previous
-                    .apply_block(&prop.block)
-                    .expect("invalid blocks inside the block graph");
-                cache.put(hash, res.clone());
-                Some(res)
+            let prop = self.proposals.get(&hash).cloned()?;
+            let mut previous = self
+                .get_state(prop.extends_from)
+                .expect("dangling pointer within block graph");
+            while previous.inner_ref().height + BlockHeight(1) < prop.block.header.height {
+                eprintln!("building {}", previous.inner_ref().height);
+                previous = previous.next_state().seal(None);
             }
+            let res = previous
+                .apply_block(&prop.block)
+                .expect("invalid blocks inside the block graph");
+            self.state_cache
+                .try_lock()
+                .map(|mut c| c.put(hash, res.clone()));
+            Some(res)
         }
     }
 
