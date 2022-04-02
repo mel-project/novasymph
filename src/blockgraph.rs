@@ -352,6 +352,10 @@ impl<C: ContentAddrStore> BlockGraph<C> {
 
     /// Inserts a proposal to the block graph. If it fails, returns exactly why the proposal failed.
     pub fn insert_proposal(&mut self, prop: Proposal) -> Result<(), ProposalRejection> {
+        if self.proposals.contains_key(&prop.block.header.hash()) {
+            log::warn!("duplicate proposal skipped");
+            return Ok(());
+        }
         if prop.proposer != (self.correct_proposer)(prop.block.header.height) {
             return Err(ProposalRejection::WrongTurn);
         }
