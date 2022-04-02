@@ -284,9 +284,8 @@ async fn confirm_gossip<C: ContentAddrStore>(
                     }
                 })
                 .detach();
-                smol::Timer::after(Duration::from_millis(200)).await;
             }
-            smol::Timer::after(Duration::from_millis(200)).await;
+            smol::Timer::after(Duration::from_millis(100)).await;
         }
         log::debug!("CONFIRMED block {}", fin_height);
         let _ = send_confirmed
