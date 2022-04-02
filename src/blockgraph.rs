@@ -201,9 +201,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
         self.proposals = self
             .proposals
             .iter()
-            .filter(|(hash, _)| {
-                root_and_descendants.contains(hash) && hash != &&self.root.header().hash()
-            })
+            .filter(|(hash, _)| root_and_descendants.contains(hash))
             .map(|(hash, val)| (*hash, val.clone()))
             .collect::<BTreeMap<_, _>>();
 
