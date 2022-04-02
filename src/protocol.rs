@@ -406,39 +406,7 @@ async fn protocol_loop<B: BlockBuilder<C>, C: ContentAddrStore>(
             }) {
                 log::error!("***** OH MY GOD VERY FATAL ERROR (issue #27) *****");
                 log::error!("Error: {:?}", err);
-                log::error!(
-                    "while building upon {} with block hash {} with {} txx, last_nonempty {}",
-                    build_upon.header().hash(),
-                    proposed_block.header.hash(),
-                    proposed_block.transactions.len(),
-                    last_nonempty_hash
-                );
-                log::error!(
-                    "did I fail again? {}",
-                    build_upon.apply_block(&proposed_block).is_err()
-                );
-                log::error!("proposer action: {:?}", proposed_block.proposer_action);
-                for _ in 0..10 {
-                    let mut build_upon_state = build_upon.next_state();
-                    build_upon_state
-                        .apply_tx_batch(
-                            &proposed_block
-                                .transactions
-                                .iter()
-                                .cloned()
-                                .collect::<Vec<_>>(),
-                        )
-                        .unwrap();
-                    log::error!(
-                        "possible coins hash: {}",
-                        build_upon_state
-                            .seal(proposed_block.proposer_action)
-                            .inner_ref()
-                            .coins
-                            .root_hash()
-                    )
-                }
-                panic!("PANIK PANIK");
+                continue;
             }
             // vote for it myself
             //cstate.write().blockgraph.vote_all(cfg.signing_sk);
