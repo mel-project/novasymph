@@ -1,8 +1,5 @@
 use crate::blockgraph::{BlockGraph, BlockGraphDiff, Proposal, ProposalRejection};
-use crate::{
-    msg::{ProposalSig, VoteSig},
-    NS_EXECUTOR,
-};
+use crate::msg::{ProposalSig, VoteSig};
 use binary_search::{binary_search, Direction};
 use dashmap::DashMap;
 use melnet::{MelnetError, Request};
@@ -81,7 +78,7 @@ impl<C: ContentAddrStore> EpochProtocol<C> {
         Self {
             _task: {
                 let cstate = cstate.clone();
-                NS_EXECUTOR.spawn(async move {
+                smolscale::spawn(async move {
                     protocol_loop(cfg, cstate, send_confirmed).await;
                 })
             },
@@ -143,7 +140,7 @@ async fn gossip_and_add_diff<C: ContentAddrStore>(
             "get_diff",
             summary,
         )
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
         //.map_err(|e| log::warn!("gossip request failed with peer {rnd_peer}: {e}"))
         .await
         .ok_or_else(|| ProtocolError::Melnet(MelnetError::Custom("timeout".into())))??;
@@ -180,7 +177,7 @@ async fn graph_gossip<C: ContentAddrStore>(
         },
     );
     let (send_finalized, recv_finalized) = smol::channel::bounded(1);
-    let _confirm_gossip = NS_EXECUTOR.spawn(confirm_gossip(
+    let _confirm_gossip = smolscale::spawn(confirm_gossip(
         epoch,
         cstate.clone(),
         network.clone(),
@@ -269,15 +266,10 @@ async fn confirm_gossip<C: ContentAddrStore>(
         {
             for peer in network.routes() {
                 let ccache = confirmation_cache.clone();
-                NS_EXECUTOR
-                    .spawn(async move {
-                        let their_mapping: BTreeMap<Ed25519PK, Vec<u8>> = match melnet::request(
-                            peer,
-                            "symphgossip",
-                            "get_confirmations",
-                            fin_height,
-                        )
-                        .await
+                smolscale::spawn(async move {
+                    let their_mapping: BTreeMap<Ed25519PK, Vec<u8>> =
+                        match melnet::request(peer, "symphgossip", "get_confirmations", fin_height)
+                            .await
                         {
                             Ok(r) => r,
                             Err(err) => {
@@ -285,13 +277,13 @@ async fn confirm_gossip<C: ContentAddrStore>(
                                 return;
                             }
                         };
-                        for (k, v) in their_mapping {
-                            if let Some(mut m) = ccache.get_mut(&fin_height) {
-                                m.insert(k, v);
-                            }
+                    for (k, v) in their_mapping {
+                        if let Some(mut m) = ccache.get_mut(&fin_height) {
+                            m.insert(k, v);
                         }
-                    })
-                    .detach();
+                    }
+                })
+                .detach();
                 smol::Timer::after(Duration::from_millis(200)).await;
             }
             smol::Timer::after(Duration::from_millis(200)).await;
@@ -322,7 +314,7 @@ async fn protocol_loop<B: BlockBuilder<C>, C: ContentAddrStore>(
     let my_epoch = (cfg.genesis.inner_ref().height + 1.into()).epoch();
 
     // Spawn gossip loop
-    let _gossiper = NS_EXECUTOR.spawn(graph_gossip(
+    let _gossiper = smolscale::spawn(graph_gossip(
         my_epoch,
         cstate.clone(),
         network.clone(),
@@ -337,7 +329,7 @@ async fn protocol_loop<B: BlockBuilder<C>, C: ContentAddrStore>(
         .await
         .expect("could not start to listen");
     let net_inner = network.clone();
-    let _server = NS_EXECUTOR.spawn(async move { net_inner.run_server(listener).await });
+    let _server = smolscale::spawn(async move { net_inner.run_server(listener).await });
 
     loop {
         let lnc_state = cstate
