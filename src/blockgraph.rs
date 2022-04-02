@@ -137,28 +137,30 @@ impl<C: ContentAddrStore> BlockGraph<C> {
     fn get_state(&self, hash: HashVal) -> Option<SealedState<C>> {
         if hash == self.root.header().hash() {
             Some(self.root.clone())
-        } else if let Some(v) = self
-            .state_cache
-            .try_lock()
-            .and_then(|mut c| c.get(&hash).cloned())
-        {
-            Some(v)
         } else {
             let prop = self.proposals.get(&hash).cloned()?;
-            let mut previous = self
-                .get_state(prop.extends_from)
-                .expect("dangling pointer within block graph");
-            while previous.inner_ref().height + BlockHeight(1) < prop.block.header.height {
-                eprintln!("building {}", previous.inner_ref().height);
-                previous = previous.next_state().seal(None);
-            }
-            let res = previous
-                .apply_block(&prop.block)
-                .expect("invalid blocks inside the block graph");
-            self.state_cache
+            if let Some(v) = self
+                .state_cache
                 .try_lock()
-                .map(|mut c| c.put(hash, res.clone()));
-            Some(res)
+                .and_then(|mut c| c.get(&hash).cloned())
+            {
+                Some(v)
+            } else {
+                let mut previous = self
+                    .get_state(prop.extends_from)
+                    .expect("dangling pointer within block graph");
+                while previous.inner_ref().height + BlockHeight(1) < prop.block.header.height {
+                    eprintln!("building {}", previous.inner_ref().height);
+                    previous = previous.next_state().seal(None);
+                }
+                let res = previous
+                    .apply_block(&prop.block)
+                    .expect("invalid blocks inside the block graph");
+                self.state_cache
+                    .try_lock()
+                    .map(|mut c| c.put(hash, res.clone()));
+                Some(res)
+            }
         }
     }
 
@@ -172,6 +174,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
         if self.root.header() == root.header() {
             return;
         }
+        log::debug!("pre-reset graphviz: {}", self.graphviz());
         log::debug!(
             "updating root to {} at height {}",
             root.header().hash(),
@@ -202,16 +205,21 @@ impl<C: ContentAddrStore> BlockGraph<C> {
         self.proposals = self
             .proposals
             .iter()
-            .filter(|(hash, _)| root_and_descendants.contains(hash))
+            .filter(|(hash, _)| {
+                root_and_descendants.contains(hash) && **hash != self.root.header().hash()
+            })
             .map(|(hash, val)| (*hash, val.clone()))
             .collect::<BTreeMap<_, _>>();
 
         self.votes = self
             .votes
             .iter()
-            .filter(|(hash, _)| root_and_descendants.contains(hash))
+            .filter(|(hash, _)| {
+                root_and_descendants.contains(hash) && **hash != self.root.header().hash()
+            })
             .map(|(hash, val)| (*hash, val.clone()))
             .collect::<BTreeMap<_, _>>();
+        log::debug!("post-reset graphviz: {}", self.graphviz());
     }
 
     fn chain_weight(&self, mut tip: HashVal) -> u64 {
@@ -251,7 +259,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
                     tip = self
                         .proposals
                         .get(&tip)
-                        .tap_none(|| log::error!("bad! graphviz {:?}", self.graphviz()))
+                        .tap_none(|| log::error!("bad! graphviz {}", self.graphviz()))
                         .expect("Expected to find provided tip in blockgraph proposals")
                         .extends_from;
                 }
@@ -281,7 +289,8 @@ impl<C: ContentAddrStore> BlockGraph<C> {
         let mut dfs_stack: Vec<(HashVal, BlockHeight, usize)> =
             vec![(self.root.header().hash(), self.root.inner_ref().height, 1)];
         while let Some((fringe_node, height, consec)) = dfs_stack.pop() {
-            if consec >= 3 {
+            if consec >= 3 && height > self.last_drained + BlockHeight(1) {
+                log::debug!("*** drain candidate {}", height);
                 // Get the block that the 3rd consecutive extends from
                 // Get all blocks from this "finalized tip" to the root
                 // This list of blocks are all finalized
@@ -306,7 +315,6 @@ impl<C: ContentAddrStore> BlockGraph<C> {
                     {
                         accum.push(accum.last().unwrap_or(&self.root).next_state().seal(None));
                     }
-
                     // Apply prop to last block in accum to get the next sealed state
                     accum.push(
                         accum
@@ -389,8 +397,13 @@ impl<C: ContentAddrStore> BlockGraph<C> {
             .entry(prop.extends_from)
             .or_default()
             .insert(header_hash);
-        self.parent_to_child.insert(header_hash, BTreeSet::new());
+        assert!(self
+            .parent_to_child
+            .insert(header_hash, BTreeSet::new())
+            .is_none());
         self.proposals.insert(header_hash, prop);
+
+        log::debug!("post-insert graphviz: {}", self.graphviz());
 
         // TODO check for turn info
         Ok(())
@@ -489,6 +502,25 @@ impl<C: ContentAddrStore> BlockGraph<C> {
                 accum.push_str(&format!("\"{}\" -> \"{}\"\n", k, v));
             }
         }
+        for (k, v) in self.proposals.iter() {
+            accum.push_str(&format!(
+                "\"{}\" -> \"{}\" [constraint=false]\n",
+                k, v.extends_from
+            ));
+            accum.push_str(&format!(
+                "\"{}\" [label={}, shape=rect]\n",
+                k,
+                if self.is_notarized(*k) {
+                    format!("\"[{}]\"", v.block.header.height)
+                } else {
+                    v.block.header.height.to_string()
+                },
+            ))
+        }
+        accum.push_str(&format!(
+            "\"{}\" [label=ROOT, shape=rect]\n",
+            self.root.header().hash(),
+        ));
         accum.push_str("}\n");
         accum
     }

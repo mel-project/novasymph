@@ -331,6 +331,7 @@ async fn protocol_loop<B: BlockBuilder<C>, C: ContentAddrStore>(
     let _server = smolscale::spawn(async move { net_inner.run_server(listener).await });
 
     loop {
+        log::debug!("GRAPHVIZ NOW: {}", cstate.read().graphviz());
         let lnc_state = cstate
             .read()
             .lnc_state()
