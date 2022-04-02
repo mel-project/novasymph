@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use stdcode::StdcodeSerializeExt;
+use tap::TapOptional;
 use themelio_stf::SealedState;
 use themelio_structs::{Block, BlockHeight};
 use thiserror::Error;
@@ -250,6 +251,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
                     tip = self
                         .proposals
                         .get(&tip)
+                        .tap_none(|| log::error!("bad! graphviz {:?}", self.graphviz()))
                         .expect("Expected to find provided tip in blockgraph proposals")
                         .extends_from;
                 }
