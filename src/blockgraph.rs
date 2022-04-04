@@ -174,8 +174,8 @@ impl<C: ContentAddrStore> BlockGraph<C> {
         if self.root.header() == root.header() {
             return;
         }
-        log::debug!("pre-reset graphviz: {}", self.graphviz());
-        log::debug!(
+        log::trace!("pre-reset graphviz: {}", self.graphviz());
+        log::trace!(
             "updating root to {} at height {}",
             root.header().hash(),
             root.inner_ref().height
@@ -219,7 +219,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
             })
             .map(|(hash, val)| (*hash, val.clone()))
             .collect::<BTreeMap<_, _>>();
-        log::debug!("post-reset graphviz: {}", self.graphviz());
+        log::trace!("post-reset graphviz: {}", self.graphviz());
     }
 
     fn chain_weight(&self, mut tip: HashVal) -> u64 {
@@ -403,7 +403,7 @@ impl<C: ContentAddrStore> BlockGraph<C> {
             .is_none());
         self.proposals.insert(header_hash, prop);
 
-        log::debug!("post-insert graphviz: {}", self.graphviz());
+        log::trace!("post-insert graphviz: {}", self.graphviz());
 
         // TODO check for turn info
         Ok(())
