@@ -89,7 +89,11 @@ impl<C: ContentAddrStore> EpochProtocol<C> {
 
     /// Receives the next fully-confirmed state.
     pub async fn next_confirmed(&self) -> ConfirmedState<C> {
-        self.recv_confirmed.recv().await.unwrap()
+        if let Ok(v) = self.recv_confirmed.recv().await {
+            v
+        } else {
+            smol::future::pending().await
+        }
     }
 
     /// Forces the given state to be genesis.
