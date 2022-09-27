@@ -199,10 +199,9 @@ async fn graph_gossip<C: ContentAddrStore>(
         let finalized = cstate.write().drain_finalized();
         for block in finalized {
             log::debug!("Block finalized: {:?}", block.header());
-            send_finalized
-                .send(block)
-                .await
-                .expect("Failed to send a block on finalized channel");
+            if send_finalized.send(block).await.is_err() {
+                smol::future::pending::<()>().await;
+            }
         }
 
         if let Some(state) = cstate.read().lnc_state() {
